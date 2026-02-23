@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ARCCS Master Controller</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root {
+  --blue-900:#0b2e73;
+  --blue-700:#1d4ed8;
+  --blue-500:#3b82f6;
+  --blue-300:#93c5fd;
+  --blue-100:#dbeafe;
+}
+body {
+  font-family:Arial, Helvetica, sans-serif;
+  background:#ffffff;
+  color:#0b1220;
+  padding:20px;
+  min-height:100vh;
+}
+h1 {
+  text-align:center;
+  margin:8px 0 22px;
+  color:var(--blue-900);
+}
+.card {
+  background:#ffffff;
+  padding:20px;
+  border-radius:16px;
+  margin:14px auto;
+  max-width:640px;
+  border:1px solid #e5e7eb;
+  box-shadow:0 10px 30px rgba(2,6,23,0.10);
+}
+h3 {
+  margin-bottom:12px;
+  color:var(--blue-900);
+}
+select {
+  width:100%;
+  padding:12px;
+  border:1px solid var(--blue-100);
+  border-radius:12px;
+  font-size:1em;
+  outline:none;
+  background:#ffffff;
+}
+button {
+  width:100%;
+  padding:14px;
+  background:linear-gradient(135deg,var(--blue-700),var(--blue-500));
+  color:white;
+  border:none;
+  border-radius:12px;
+  cursor:pointer;
+  font-size:1em;
+  font-weight:800;
+  margin-top:14px;
+}
+button:hover {
+  background:linear-gradient(135deg,var(--blue-900),var(--blue-700));
+}
+.preset-buttons {
+  display:flex;
+  gap:10px;
+  margin-top:14px;
+}
+.preset-buttons button {
+  flex:1;
+  margin-top:0;
+}
+input[type=range] {
+  width:100%;
+  height:44px;
+  -webkit-appearance:none;
+  background:transparent;
+}
+input[type=range]::-webkit-slider-track {
+  width:100%;
+  height:12px;
+  background:rgba(219,234,254,0.9);
+  border-radius:999px;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance:none;
+  height:32px;
+  width:32px;
+  border-radius:50%;
+  background:linear-gradient(135deg,var(--blue-700),var(--blue-300));
+  cursor:pointer;
+  margin-top:-11px;
+}
+.slider-value {
+  text-align:center;
+  font-size:1.4em;
+  margin:10px 0;
+  font-weight:900;
+  color:var(--blue-900);
+}
+.vent-card {
+  background:rgba(219,234,254,0.3);
+  border:1px solid rgba(147,197,253,0.3);
+  padding:14px;
+  border-radius:12px;
+  margin:10px 0;
+}
+.status-badge {
+  font-size:0.75em;
+  padding:4px 10px;
+  border-radius:999px;
+  font-weight:800;
+}
+.status-badge.online {
+  background:rgba(34,197,94,0.2);
+  color:#15803d;
+}
+.status-badge.offline {
+  background:rgba(239,68,68,0.2);
+  color:#991b1b;
+}
+#connectionStatus {
+  text-align:center;
+  padding:10px;
+  margin:10px 0;
+  border-radius:8px;
+  font-weight:bold;
+}
+#connectionStatus.connected {
+  background:#d1fae5;
+  color:#065f46;
+}
+#connectionStatus.disconnected {
+  background:#fee2e2;
+  color:#991b1b;
+}
+</style>
+</head>
+<body>
+
+<div id="connectionStatus" class="disconnected">Connecting to ARCCS Master...</div>
+
+<h1 id="roomName">ARCCS Master Controller</h1>
+
+<div class="card">
+  <h3>Vent Status</h3>
+  <div id="ventStatus">Loading...</div>
+</div>
+
+<div class="card">
+  <h3>Control Vents</h3>
+  <label>Select Vent:</label>
+  <select id="ventSelect">
+    <option value="all">All Vents</option>
+  </select>
+
+  <div class="slider-container">
+    <label>Position:</label>
+    <input type="range" id="posSlider" min="0" max="90" value="45" oninput="updateSliderValue()">
+    <div class="slider-value"><span id="sliderValue">45</span>°</div>
+  </div>
+
+  <button onclick="sendCommand()">Set Position</button>
+
+  <div class="preset-buttons">
+    <button onclick="setPreset(0)">Close</button>
+    <button onclick="setPreset(45)">Half</button>
+    <button onclick="setPreset(90)">Open</button>
+  </div>
+</div>
+
+<div style="text-align:center;margin-top:20px;">
+  <a href="#" onclick="loadSettings()">Settings</a> | 
+  <a href="#" onclick="loadAdvanced()">Advanced</a>
+</div>
+
+<script>
+// Get ESP32 IP from URL parameter or localStorage
+let ESP32_IP = new URLSearchParams(window.location.search).get('ip') || localStorage.getItem('esp32_ip') || prompt('Enter ESP32 IP address:', '192.168.4.1');
+if (ESP32_IP) localStorage.setItem('esp32_ip', ESP32_IP);
+
+const API_BASE = `http://${ESP32_IP}`;
+
+// Update slider value display
+function updateSliderValue() {
+  document.getElementById('sliderValue').innerText = document.getElementById('posSlider').value;
+}
+
+// Set preset position
+function setPreset(pos) {
+  document.getElementById('posSlider').value = pos;
+  updateSliderValue();
+}
+
+// Load status from ESP32
+async function loadStatus() {
+  try {
+    const response = await fetch(`${API_BASE}/api/status`);
+    const data = await response.json();
+    
+    // Update connection status
+    document.getElementById('connectionStatus').className = 'connected';
+    document.getElementById('connectionStatus').innerText = `Connected to ${ESP32_IP} | MQTT: ${data.mqtt_status}`;
+    
+    // Update room name
+    document.getElementById('roomName').innerText = data.room_name || 'ARCCS Master';
+    
+    // Update vent dropdown
+    const ventSelect = document.getElementById('ventSelect');
+    ventSelect.innerHTML = '<option value="all">All Vents</option>';
+    data.vents.forEach(vent => {
+      ventSelect.innerHTML += `<option value="${vent.name}">${vent.name}</option>`;
+    });
+    
+    // Update vent status cards
+    let statusHTML = '';
+    data.vents.forEach(vent => {
+      const onlineClass = vent.online ? 'online' : 'offline';
+      const onlineText = vent.online ? 'ONLINE' : 'OFFLINE';
+      statusHTML += `
+        <div class="vent-card">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+            <strong>${vent.name}</strong>
+            <span class="status-badge ${onlineClass}">${onlineText}</span>
+          </div>
+          <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+            <div>Position: <strong>${vent.position}°</strong></div>
+            <div>Target: <strong>${vent.target}°</strong></div>
+          </div>
+        </div>
+      `;
+    });
+    
+    if (!statusHTML) {
+      statusHTML = '<p>No vents configured</p>';
+    }
+    
+    document.getElementById('ventStatus').innerHTML = statusHTML;
+    
+  } catch (error) {
+    console.error('Failed to load status:', error);
+    document.getElementById('connectionStatus').className = 'disconnected';
+    document.getElementById('connectionStatus').innerText = `Cannot connect to ${ESP32_IP}`;
+  }
+}
+
+// Send control command
+async function sendCommand() {
+  const vent = document.getElementById('ventSelect').value;
+  const position = document.getElementById('posSlider').value;
+  
+  try {
+    let url;
+    if (vent === 'all') {
+      url = `${API_BASE}/control-all?position=${position}`;
+    } else {
+      url = `${API_BASE}/control-single?vent=${encodeURIComponent(vent)}&position=${position}`;
+    }
+    
+    await fetch(url);
+    
+    // Reload status after short delay
+    setTimeout(loadStatus, 800);
+    
+  } catch (error) {
+    console.error('Failed to send command:', error);
+    alert('Failed to send command. Check connection.');
+  }
+}
+
+// Load settings page
+function loadSettings() {
+  window.location.href = `${API_BASE}/settings`;
+}
+
+// Load advanced page
+function loadAdvanced() {
+  window.location.href = `${API_BASE}/prototyping`;
+}
+
+// Auto-refresh status every 3 seconds
+setInterval(loadStatus, 3000);
+
+// Initial load
+loadStatus();
+</script>
+
+</body>
+</html>
